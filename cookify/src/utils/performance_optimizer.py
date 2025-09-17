@@ -272,7 +272,7 @@ class PerformanceOptimizer:
         Returns:
             TextRecognizer: Optimized TextRecognizer instance.
         """
-        if not self.config["optimizations"]["text_recognizer"]:
+        if not self.config["optimizations"]["text_recognizer"] or text_recognizer is None:
             return text_recognizer
         
         logger.info("Optimizing TextRecognizer")
@@ -311,7 +311,7 @@ class PerformanceOptimizer:
         Returns:
             ActionRecognizer: Optimized ActionRecognizer instance.
         """
-        if not self.config["optimizations"]["action_recognizer"]:
+        if not self.config["optimizations"]["action_recognizer"] or action_recognizer is None:
             return action_recognizer
         
         logger.info("Optimizing ActionRecognizer")
@@ -343,7 +343,7 @@ class PerformanceOptimizer:
         Returns:
             SpeechRecognizer: Optimized SpeechRecognizer instance.
         """
-        if not self.config["optimizations"]["speech_recognizer"]:
+        if not self.config["optimizations"]["speech_recognizer"] or speech_recognizer is None:
             return speech_recognizer
         
         logger.info("Optimizing SpeechRecognizer")
@@ -378,7 +378,7 @@ class PerformanceOptimizer:
         Returns:
             NLPProcessor: Optimized NLPProcessor instance.
         """
-        if not self.config["optimizations"]["nlp_processor"]:
+        if not self.config["optimizations"]["nlp_processor"] or nlp_processor is None:
             return nlp_processor
         
         logger.info("Optimizing NLPProcessor")
@@ -406,7 +406,7 @@ class PerformanceOptimizer:
         Returns:
             MultimodalIntegrator: Optimized MultimodalIntegrator instance.
         """
-        if not self.config["optimizations"]["multimodal_integrator"]:
+        if not self.config["optimizations"]["multimodal_integrator"] or multimodal_integrator is None:
             return multimodal_integrator
         
         logger.info("Optimizing MultimodalIntegrator")
@@ -434,7 +434,7 @@ class PerformanceOptimizer:
         Returns:
             RecipeExtractor: Optimized RecipeExtractor instance.
         """
-        if not self.config["optimizations"]["recipe_extractor"]:
+        if not self.config["optimizations"]["recipe_extractor"] or recipe_extractor is None:
             return recipe_extractor
         
         logger.info("Optimizing RecipeExtractor")
