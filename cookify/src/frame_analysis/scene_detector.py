@@ -182,14 +182,26 @@ class SceneDetector:
                     )
                 )
             elif self.detector_type == DetectorType.ADAPTIVE:
-                scene_manager.add_detector(
-                    AdaptiveDetector(
-                        adaptive_threshold=self.adaptive_threshold,
-                        min_scene_len=self.min_scene_len,
-                        window_size=self.window_size,
-                        luma_only=self.luma_only
+                try:
+                    # Try with window_size parameter
+                    scene_manager.add_detector(
+                        AdaptiveDetector(
+                            adaptive_threshold=self.adaptive_threshold,
+                            min_scene_len=self.min_scene_len,
+                            window_size=self.window_size,
+                            luma_only=self.luma_only
+                        )
                     )
-                )
+                except TypeError:
+                    # If window_size is not supported, try without it
+                    logger.warning("AdaptiveDetector does not support window_size parameter, using default")
+                    scene_manager.add_detector(
+                        AdaptiveDetector(
+                            adaptive_threshold=self.adaptive_threshold,
+                            min_scene_len=self.min_scene_len,
+                            luma_only=self.luma_only
+                        )
+                    )
             elif self.detector_type == DetectorType.COMBINED:
                 # Add both content and adaptive detectors for better results
                 scene_manager.add_detector(
@@ -199,14 +211,27 @@ class SceneDetector:
                         luma_only=self.luma_only
                     )
                 )
-                scene_manager.add_detector(
-                    AdaptiveDetector(
-                        adaptive_threshold=self.adaptive_threshold,
-                        min_scene_len=self.min_scene_len,
-                        window_size=self.window_size,
-                        luma_only=self.luma_only
+                
+                try:
+                    # Try with window_size parameter
+                    scene_manager.add_detector(
+                        AdaptiveDetector(
+                            adaptive_threshold=self.adaptive_threshold,
+                            min_scene_len=self.min_scene_len,
+                            window_size=self.window_size,
+                            luma_only=self.luma_only
+                        )
                     )
-                )
+                except TypeError:
+                    # If window_size is not supported, try without it
+                    logger.warning("AdaptiveDetector does not support window_size parameter, using default")
+                    scene_manager.add_detector(
+                        AdaptiveDetector(
+                            adaptive_threshold=self.adaptive_threshold,
+                            min_scene_len=self.min_scene_len,
+                            luma_only=self.luma_only
+                        )
+                    )
             
             # Perform scene detection
             scene_manager.detect_scenes(video)
