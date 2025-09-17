@@ -9,17 +9,17 @@ import yaml
 from pathlib import Path
 from tqdm import tqdm
 
-from preprocessing.video_processor import VideoProcessor
-from frame_analysis.object_detector import ObjectDetector
-from frame_analysis.scene_detector import SceneDetector
-from frame_analysis.text_recognizer import TextRecognizer
-from frame_analysis.action_recognizer import ActionRecognizer
-from audio_analysis.transcriber import AudioTranscriber
-from audio_analysis.nlp_processor import NLPProcessor
-from integration.multimodal_integrator import MultimodalIntegrator
-from recipe_extraction.recipe_extractor import RecipeExtractor
-from output_formatting.formatter import OutputFormatter
-from utils.config_loader import load_config
+from src.preprocessing.video_processor import VideoProcessor
+from src.frame_analysis.object_detector import ObjectDetector
+from src.frame_analysis.scene_detector import SceneDetector
+from src.frame_analysis.text_recognizer import TextRecognizer
+from src.frame_analysis.action_recognizer import ActionRecognizer
+from src.audio_analysis.transcriber import AudioTranscriber
+from src.audio_analysis.nlp_processor import NLPProcessor
+from src.integration.multimodal_integrator import MultimodalIntegrator
+from src.recipe_extraction.recipe_extractor import RecipeExtractor
+from src.output_formatting.formatter import OutputFormatter
+from src.utils.config_loader import load_config
 
 logger = logging.getLogger(__name__)
 
