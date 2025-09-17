@@ -14,15 +14,56 @@ logger = logging.getLogger(__name__)
 COOKING_CLASSES = {
     # Food items
     'apple', 'orange', 'banana', 'broccoli', 'carrot', 'hot dog', 'pizza', 
-    'donut', 'cake', 'sandwich',
+    'donut', 'cake', 'sandwich', 'tomato', 'potato', 'onion', 'garlic',
+    'lettuce', 'cucumber', 'pepper', 'cheese', 'egg', 'meat', 'chicken',
+    'beef', 'pork', 'fish', 'shrimp', 'rice', 'pasta', 'bread', 'butter',
+    'oil', 'salt', 'sugar', 'flour', 'herb', 'spice',
     
     # Kitchen tools and containers
     'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl',
-    'microwave', 'oven', 'toaster', 'sink', 'refrigerator',
+    'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'blender',
+    'mixer', 'cutting board', 'pan', 'pot', 'plate', 'whisk', 'grater',
+    'colander', 'strainer', 'measuring cup', 'measuring spoon', 'spatula',
+    'tongs', 'ladle', 'rolling pin', 'peeler', 'can opener', 'scale',
+    'timer', 'thermometer',
     
     # People
     'person',
 }
+
+# Custom cooking classes for fine-tuned model
+CUSTOM_COOKING_CLASSES = [
+    # Common ingredients
+    'tomato', 'potato', 'onion', 'garlic', 'ginger', 'carrot', 'bell_pepper',
+    'chili_pepper', 'lettuce', 'spinach', 'kale', 'cabbage', 'broccoli',
+    'cauliflower', 'mushroom', 'zucchini', 'eggplant', 'cucumber', 'corn',
+    'peas', 'green_beans', 'asparagus', 'avocado', 'lemon', 'lime', 'orange',
+    'apple', 'banana', 'berry', 'grape', 'watermelon', 'beef', 'chicken',
+    'pork', 'fish', 'shrimp', 'egg', 'milk', 'cheese', 'yogurt', 'butter',
+    'cream', 'flour', 'sugar', 'salt', 'pepper', 'oil', 'vinegar', 'soy_sauce',
+    'ketchup', 'mustard', 'mayonnaise', 'honey', 'maple_syrup', 'rice', 'pasta',
+    'bread', 'tortilla', 'noodle', 'bean', 'lentil', 'nut', 'seed',
+    
+    # Kitchen tools
+    'knife', 'cutting_board', 'bowl', 'plate', 'pan', 'pot', 'skillet',
+    'baking_sheet', 'baking_dish', 'measuring_cup', 'measuring_spoon', 'spoon',
+    'fork', 'whisk', 'spatula', 'tongs', 'ladle', 'grater', 'peeler', 'can_opener',
+    'bottle_opener', 'colander', 'strainer', 'mixer', 'blender', 'food_processor',
+    'scale', 'timer', 'thermometer', 'oven_mitt', 'kitchen_towel', 'rolling_pin',
+    'mortar_pestle', 'sieve', 'funnel', 'scissors', 'zester', 'masher',
+    
+    # Appliances
+    'stove', 'oven', 'microwave', 'refrigerator', 'freezer', 'dishwasher',
+    'toaster', 'coffee_maker', 'kettle', 'slow_cooker', 'pressure_cooker',
+    'air_fryer', 'food_dehydrator', 'rice_cooker', 'waffle_maker', 'grill',
+    
+    # Actions
+    'cutting', 'chopping', 'slicing', 'dicing', 'mincing', 'peeling', 'grating',
+    'mixing', 'stirring', 'whisking', 'kneading', 'rolling', 'folding', 'pouring',
+    'measuring', 'weighing', 'boiling', 'simmering', 'frying', 'sauteing',
+    'baking', 'roasting', 'grilling', 'broiling', 'steaming', 'blanching',
+    'marinating', 'seasoning', 'tasting', 'plating', 'serving'
+]
 
 class ObjectDetector:
     """
@@ -52,14 +93,30 @@ class ObjectDetector:
         
         try:
             from ultralytics import YOLO
+            import os
+            from pathlib import Path
+            
+            # Define models directory
+            models_dir = Path(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))) / "models"
             
             # Use specified model path or default to YOLOv8x
             if self.model_path:
                 logger.info(f"Loading YOLOv8 model from {self.model_path}")
                 self.model = YOLO(self.model_path)
             else:
-                logger.info("Loading default YOLOv8x model")
-                self.model = YOLO("yolov8x.pt")
+                # Check if we have a fine-tuned cooking model
+                cooking_model_path = models_dir / "yolov8" / "yolov8_cooking.pt"
+                default_model_path = models_dir / "yolov8" / "yolov8x.pt"
+                
+                if os.path.exists(cooking_model_path):
+                    logger.info(f"Loading fine-tuned cooking model from {cooking_model_path}")
+                    self.model = YOLO(cooking_model_path)
+                elif os.path.exists(default_model_path):
+                    logger.info(f"Loading YOLOv8x model from {default_model_path}")
+                    self.model = YOLO(default_model_path)
+                else:
+                    logger.info("Loading default YOLOv8x model from ultralytics")
+                    self.model = YOLO("yolov8x.pt")
             
             logger.info("YOLOv8 model loaded successfully")
         except Exception as e:
@@ -166,3 +223,227 @@ class ObjectDetector:
             })
         
         return filtered_results
+    
+    def fine_tune(self, dataset_path, epochs=10, batch_size=16):
+        """
+        Fine-tune the YOLOv8 model on a custom cooking dataset.
+        
+        Args:
+            dataset_path (str): Path to the dataset in YOLO format.
+            epochs (int, optional): Number of training epochs. Defaults to 10.
+            batch_size (int, optional): Batch size for training. Defaults to 16.
+            
+        Returns:
+            bool: True if fine-tuning was successful, False otherwise.
+        """
+        try:
+            self._load_model()
+            
+            # Define output directory
+            import os
+            from pathlib import Path
+            models_dir = Path(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))) / "models"
+            output_dir = models_dir / "yolov8" / "fine_tuned"
+            os.makedirs(output_dir, exist_ok=True)
+            
+            logger.info(f"Fine-tuning YOLOv8 model on {dataset_path} for {epochs} epochs")
+            
+            # Train the model
+            results = self.model.train(
+                data=dataset_path,
+                epochs=epochs,
+                batch=batch_size,
+                imgsz=640,
+                project=str(output_dir),
+                name="cooking_model",
+                save=True
+            )
+            
+            # Save the fine-tuned model
+            fine_tuned_path = models_dir / "yolov8" / "yolov8_cooking.pt"
+            self.model.save(fine_tuned_path)
+            
+            logger.info(f"Fine-tuned model saved to {fine_tuned_path}")
+            
+            # Update the model path
+            self.model_path = str(fine_tuned_path)
+            
+            return True
+        except Exception as e:
+            logger.error(f"Error fine-tuning YOLOv8 model: {e}")
+            return False
+    
+    def detect_with_postprocessing(self, frames, apply_nms=True, iou_threshold=0.45):
+        """
+        Detect objects in frames with additional post-processing.
+        
+        Args:
+            frames (list): List of frames as numpy arrays.
+            apply_nms (bool, optional): Whether to apply non-maximum suppression. Defaults to True.
+            iou_threshold (float, optional): IoU threshold for NMS. Defaults to 0.45.
+            
+        Returns:
+            list: List of detection results for each frame.
+        """
+        # Get raw detections
+        results = self.detect(frames)
+        
+        # Apply post-processing
+        if apply_nms:
+            results = self._apply_nms(results, iou_threshold)
+        
+        # Filter for cooking-related objects
+        results = self.filter_cooking_related(results)
+        
+        # Track objects across frames
+        results = self._track_objects(results)
+        
+        return results
+    
+    def _apply_nms(self, results, iou_threshold=0.45):
+        """
+        Apply non-maximum suppression to detection results.
+        
+        Args:
+            results (list): Detection results.
+            iou_threshold (float, optional): IoU threshold. Defaults to 0.45.
+            
+        Returns:
+            list: Processed detection results.
+        """
+        import numpy as np
+        from ultralytics.utils.ops import non_max_suppression
+        
+        processed_results = []
+        
+        for frame_result in results:
+            detections = frame_result["detections"]
+            
+            if not detections:
+                processed_results.append(frame_result)
+                continue
+            
+            # Convert detections to format expected by NMS
+            boxes = np.array([[d["box"]["x1"], d["box"]["y1"], d["box"]["x2"], d["box"]["y2"]] for d in detections])
+            scores = np.array([d["confidence"] for d in detections])
+            classes = np.array([d["class"] for d in detections])
+            
+            # Apply NMS
+            indices = non_max_suppression(
+                boxes, 
+                scores, 
+                iou_threshold=iou_threshold
+            )
+            
+            # Create new detections list
+            new_detections = [detections[i] for i in indices]
+            
+            processed_results.append({
+                "frame_idx": frame_result["frame_idx"],
+                "detections": new_detections
+            })
+        
+        return processed_results
+    
+    def _track_objects(self, results):
+        """
+        Track objects across frames.
+        
+        Args:
+            results (list): Detection results.
+            
+        Returns:
+            list: Detection results with tracking information.
+        """
+        # Simple tracking based on IoU overlap
+        tracked_results = []
+        object_tracks = {}  # Dictionary to store object tracks
+        next_track_id = 0
+        
+        for frame_idx, frame_result in enumerate(results):
+            detections = frame_result["detections"]
+            tracked_detections = []
+            
+            for detection in detections:
+                box = [detection["box"]["x1"], detection["box"]["y1"], 
+                       detection["box"]["x2"], detection["box"]["y2"]]
+                cls = detection["class"]
+                
+                # Try to match with existing tracks
+                matched_track_id = None
+                max_iou = 0.5  # Minimum IoU threshold for matching
+                
+                for track_id, track in object_tracks.items():
+                    if track["class"] != cls:
+                        continue
+                    
+                    if frame_idx - track["last_seen"] > 5:  # Skip if track is too old
+                        continue
+                    
+                    last_box = track["boxes"][-1]
+                    iou = self._calculate_iou(box, last_box)
+                    
+                    if iou > max_iou:
+                        max_iou = iou
+                        matched_track_id = track_id
+                
+                # If matched, update track
+                if matched_track_id is not None:
+                    track = object_tracks[matched_track_id]
+                    track["boxes"].append(box)
+                    track["last_seen"] = frame_idx
+                    detection["track_id"] = matched_track_id
+                # Otherwise, create new track
+                else:
+                    track_id = next_track_id
+                    next_track_id += 1
+                    
+                    object_tracks[track_id] = {
+                        "class": cls,
+                        "boxes": [box],
+                        "first_seen": frame_idx,
+                        "last_seen": frame_idx
+                    }
+                    
+                    detection["track_id"] = track_id
+                
+                tracked_detections.append(detection)
+            
+            tracked_results.append({
+                "frame_idx": frame_result["frame_idx"],
+                "detections": tracked_detections
+            })
+        
+        return tracked_results
+    
+    def _calculate_iou(self, box1, box2):
+        """
+        Calculate IoU between two boxes.
+        
+        Args:
+            box1 (list): First box [x1, y1, x2, y2].
+            box2 (list): Second box [x1, y1, x2, y2].
+            
+        Returns:
+            float: IoU value.
+        """
+        # Calculate intersection area
+        x1 = max(box1[0], box2[0])
+        y1 = max(box1[1], box2[1])
+        x2 = min(box1[2], box2[2])
+        y2 = min(box1[3], box2[3])
+        
+        if x2 < x1 or y2 < y1:
+            return 0.0
+        
+        intersection_area = (x2 - x1) * (y2 - y1)
+        
+        # Calculate union area
+        box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
+        box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
+        union_area = box1_area + box2_area - intersection_area
+        
+        # Calculate IoU
+        iou = intersection_area / union_area if union_area > 0 else 0.0
+        
+        return iou
