@@ -33,3 +33,10 @@ transformers>=4.9.1
 jsonschema>=3.2.0
 PyYAML>=6.0
 requests>=2.26.0
+
+# Web interface
+Flask>=2.0.1
+Werkzeug>=2.0.1
+Jinja2>=3.0.1
+itsdangerous>=2.0.1
+click>=8.0.1
