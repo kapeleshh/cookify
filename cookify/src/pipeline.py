@@ -201,3 +201,16 @@ class Pipeline:
         print(f"Servings: {recipe.get('servings', 'Unknown')}")
         print(f"Ingredients: {len(recipe.get('ingredients', []))} items")
         print(f"Steps: {len(recipe.get('steps', []))} steps")
+    
+    def process_video(self, video_path, output_path=None):
+        """
+        Process a video and extract the recipe. This is an alias for the process method.
+        
+        Args:
+            video_path (str): Path to the video file.
+            output_path (str, optional): Path to save the output. Defaults to None.
+            
+        Returns:
+            dict: Extracted recipe.
+        """
+        return self.process(video_path, output_path)
