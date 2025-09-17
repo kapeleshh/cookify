@@ -203,9 +203,18 @@ class VideoProcessor:
         
         try:
             subprocess.run(cmd, check=True, capture_output=True)
+        except FileNotFoundError:
+            logger.error("ffmpeg not found. Please install ffmpeg and make sure it's in your PATH.")
+            logger.warning("Continuing without audio extraction.")
+            # Create an empty file as a placeholder
+            with open(audio_path, 'w') as f:
+                f.write("# Audio extraction skipped - ffmpeg not installed")
         except subprocess.CalledProcessError as e:
             logger.error(f"Error extracting audio: {e}")
             logger.error(f"ffmpeg stderr: {e.stderr.decode()}")
-            raise
+            logger.warning("Continuing without audio extraction.")
+            # Create an empty file as a placeholder
+            with open(audio_path, 'w') as f:
+                f.write("# Audio extraction failed")
         
         return audio_path
