@@ -6,6 +6,7 @@ import os
 import logging
 import json
 import yaml
+import time
 from pathlib import Path
 from tqdm import tqdm
 from typing import Dict, List, Optional, Union, Any
@@ -22,6 +23,8 @@ from .recipe_extraction.recipe_extractor import RecipeExtractor
 from .output_formatting.formatter import OutputFormatter
 from .utils.config_loader import load_config
 from .utils.logger import setup_pipeline_logging, CookifyLogger
+import psutil
+import gc
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +71,10 @@ class Pipeline:
             "config_loaded": True,
             "components_initialized": True
         })
+        
+        # Initialize performance monitoring
+        self.performance_data = {}
+        self.start_times = {}
     
     def _init_components(self):
         """
@@ -144,6 +151,66 @@ class Pipeline:
             logger.warning(f"Unusual video file extension: {file_ext}")
         
         logger.info(f"Input validation passed: {video_path} ({file_size} bytes)")
+    
+    def _start_performance_monitoring(self, operation: str) -> None:
+        """Start monitoring performance for an operation."""
+        self.start_times[operation] = time.time()
+        self.logger.debug(f"Started performance monitoring: {operation}")
+    
+    def _end_performance_monitoring(self, operation: str) -> float:
+        """End monitoring performance for an operation and return duration."""
+        if operation not in self.start_times:
+            self.logger.warning(f"No start time found for operation: {operation}")
+            return 0.0
+        
+        duration = time.time() - self.start_times[operation]
+        del self.start_times[operation]
+        
+        # Store performance data
+        if operation not in self.performance_data:
+            self.performance_data[operation] = []
+        self.performance_data[operation].append(duration)
+        
+        self.logger.info(f"Operation '{operation}' completed in {duration:.2f}s")
+        return duration
+    
+    def _optimize_memory_usage(self) -> None:
+        """Optimize memory usage by cleaning up and garbage collecting."""
+        gc.collect()
+        memory_percent = psutil.virtual_memory().percent
+        self.logger.debug(f"Memory usage: {memory_percent:.1f}%")
+        
+        if memory_percent > 90:
+            self.logger.warning("High memory usage detected, forcing garbage collection")
+            gc.collect()
+    
+    def _get_system_status(self) -> Dict[str, Any]:
+        """Get current system status."""
+        memory = psutil.virtual_memory()
+        return {
+            "memory": {
+                "total_gb": memory.total / (1024**3),
+                "available_gb": memory.available / (1024**3),
+                "percent_used": memory.percent
+            },
+            "cpu_percent": psutil.cpu_percent(interval=1)
+        }
+    
+    def _log_performance_summary(self) -> None:
+        """Log performance summary for all operations."""
+        if not self.performance_data:
+            return
+        
+        self.logger.info("Performance Summary:")
+        for operation, times in self.performance_data.items():
+            if times:
+                avg_time = sum(times) / len(times)
+                total_time = sum(times)
+                self.logger.info(f"  {operation}: {len(times)} calls, avg: {avg_time:.2f}s, total: {total_time:.2f}s")
+        
+        # Log system status
+        system_status = self._get_system_status()
+        self.logger.info(f"System Status - Memory: {system_status['memory']['percent_used']:.1f}%, CPU: {system_status['cpu_percent']:.1f}%")
 
     def process(self, video_path: str, output_path: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -179,7 +246,7 @@ class Pipeline:
         
         # Create output directory if it doesn't exist
         try:
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
         except OSError as e:
             raise VideoProcessingError(f"Failed to create output directory: {e}")
         
@@ -199,19 +266,24 @@ class Pipeline:
         
         try:
             # Step 1: Preprocess video
+            self._start_performance_monitoring("video_preprocessing")
             self.cookify_logger.start_timer("video_preprocessing")
             self.logger.info("Preprocessing video...")
             try:
-                frames, audio_path, metadata = self.video_processor.process(video_path)
+            frames, audio_path, metadata = self.video_processor.process(video_path)
                 processing_results["metadata"] = metadata
                 duration = self.cookify_logger.end_timer("video_preprocessing")
+                self._end_performance_monitoring("video_preprocessing")
                 self.cookify_logger.log_processing_step("Video preprocessing", {
                     "frames_extracted": len(frames),
                     "duration": duration,
                     "metadata": metadata
                 })
+                # Optimize memory after video preprocessing
+                self._optimize_memory_usage()
             except Exception as e:
                 self.cookify_logger.end_timer("video_preprocessing")
+                self._end_performance_monitoring("video_preprocessing")
                 error_msg = f"Video preprocessing failed: {e}"
                 self.cookify_logger.log_error_with_context(e, {"step": "video_preprocessing", "video_path": video_path})
                 processing_results["errors"].append(error_msg)
@@ -220,7 +292,7 @@ class Pipeline:
             # Step 2: Detect scenes
             logger.info("Detecting scenes...")
             try:
-                scenes = self.scene_detector.detect(video_path)
+            scenes = self.scene_detector.detect(video_path)
                 processing_results["scenes"] = scenes
                 logger.info(f"Scene detection completed: {len(scenes)} scenes detected")
             except Exception as e:
@@ -230,17 +302,22 @@ class Pipeline:
                 scenes = []
             
             # Step 3: Detect objects in frames
+            self._start_performance_monitoring("object_detection")
             logger.info("Detecting objects in frames...")
             try:
-                object_detections = self.object_detector.detect(frames)
-                
-                # Filter for cooking-related objects if configured
-                if self.config["object_detection"]["filter_cooking_objects"]:
-                    object_detections = self.object_detector.filter_cooking_related(object_detections)
+            object_detections = self.object_detector.detect(frames)
+            
+            # Filter for cooking-related objects if configured
+            if self.config["object_detection"]["filter_cooking_objects"]:
+                object_detections = self.object_detector.filter_cooking_related(object_detections)
                 
                 processing_results["object_detections"] = object_detections
-                logger.info(f"Object detection completed: {len(object_detections)} detections")
+                duration = self._end_performance_monitoring("object_detection")
+                logger.info(f"Object detection completed: {len(object_detections)} detections in {duration:.2f}s")
+                # Optimize memory after object detection
+                self._optimize_memory_usage()
             except Exception as e:
+                self._end_performance_monitoring("object_detection")
                 error_msg = f"Object detection failed: {e}"
                 logger.warning(error_msg)
                 processing_results["warnings"].append(error_msg)
@@ -324,8 +401,8 @@ class Pipeline:
             
             # Save output
             try:
-                with open(output_path, 'w') as f:
-                    json.dump(formatted_output, f, indent=2)
+            with open(output_path, 'w') as f:
+                json.dump(formatted_output, f, indent=2)
                 self.logger.info(f"Recipe extracted and saved to {output_path}")
                 
                 # Log recipe extraction summary
@@ -342,6 +419,9 @@ class Pipeline:
                 "total_duration": total_duration,
                 "output_path": output_path
             })
+            
+            # Log performance summary
+            self._log_performance_summary()
             
             return formatted_output
             
