@@ -21,6 +21,7 @@ from .integration.multimodal_integrator import MultimodalIntegrator
 from .recipe_extraction.recipe_extractor import RecipeExtractor
 from .output_formatting.formatter import OutputFormatter
 from .utils.config_loader import load_config
+from .utils.logger import setup_pipeline_logging, CookifyLogger
 
 logger = logging.getLogger(__name__)
 
@@ -55,19 +56,18 @@ class Pipeline:
         # Load configuration
         self.config = load_config(config_path)
         
-        # Configure logging
-        log_level = getattr(logging, self.config["general"]["log_level"].upper())
-        logging.basicConfig(
-            level=log_level,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler("cookify.log"),
-                logging.StreamHandler()
-            ]
-        )
+        # Setup enhanced logging
+        self.cookify_logger = setup_pipeline_logging(self.config)
+        self.logger = self.cookify_logger.get_logger()
         
         # Initialize components
         self._init_components()
+        
+        # Log initialization completion
+        self.cookify_logger.log_processing_step("Pipeline initialization", {
+            "config_loaded": True,
+            "components_initialized": True
+        })
     
     def _init_components(self):
         """
@@ -161,13 +161,15 @@ class Pipeline:
             AudioProcessingError: If audio processing fails.
             RecipeExtractionError: If recipe extraction fails.
         """
-        logger.info(f"Processing video: {video_path}")
+        self.logger.info(f"Processing video: {video_path}")
+        self.cookify_logger.start_timer("video_processing")
         
         # Validate input
         try:
             self._validate_input(video_path)
+            self.cookify_logger.log_processing_step("Input validation", {"status": "passed"})
         except VideoProcessingError as e:
-            logger.error(f"Input validation failed: {e}")
+            self.cookify_logger.log_error_with_context(e, {"step": "input_validation", "video_path": video_path})
             raise
         
         # Determine output path
@@ -197,14 +199,21 @@ class Pipeline:
         
         try:
             # Step 1: Preprocess video
-            logger.info("Preprocessing video...")
+            self.cookify_logger.start_timer("video_preprocessing")
+            self.logger.info("Preprocessing video...")
             try:
                 frames, audio_path, metadata = self.video_processor.process(video_path)
                 processing_results["metadata"] = metadata
-                logger.info(f"Video preprocessing completed: {len(frames)} frames extracted")
+                duration = self.cookify_logger.end_timer("video_preprocessing")
+                self.cookify_logger.log_processing_step("Video preprocessing", {
+                    "frames_extracted": len(frames),
+                    "duration": duration,
+                    "metadata": metadata
+                })
             except Exception as e:
+                self.cookify_logger.end_timer("video_preprocessing")
                 error_msg = f"Video preprocessing failed: {e}"
-                logger.error(error_msg)
+                self.cookify_logger.log_error_with_context(e, {"step": "video_preprocessing", "video_path": video_path})
                 processing_results["errors"].append(error_msg)
                 raise VideoProcessingError(error_msg) from e
             
@@ -317,11 +326,22 @@ class Pipeline:
             try:
                 with open(output_path, 'w') as f:
                     json.dump(formatted_output, f, indent=2)
-                logger.info(f"Recipe extracted and saved to {output_path}")
+                self.logger.info(f"Recipe extracted and saved to {output_path}")
+                
+                # Log recipe extraction summary
+                self.cookify_logger.log_recipe_extraction(formatted_output)
+                
             except Exception as e:
                 error_msg = f"Failed to save output: {e}"
-                logger.error(error_msg)
+                self.cookify_logger.log_error_with_context(e, {"step": "save_output", "output_path": output_path})
                 raise VideoProcessingError(error_msg) from e
+            
+            # Log final performance summary
+            total_duration = self.cookify_logger.end_timer("video_processing")
+            self.cookify_logger.log_processing_step("Video processing completed", {
+                "total_duration": total_duration,
+                "output_path": output_path
+            })
             
             return formatted_output
             
