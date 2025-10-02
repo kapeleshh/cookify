@@ -8,6 +8,7 @@ import json
 import yaml
 from pathlib import Path
 from tqdm import tqdm
+from typing import Dict, List, Optional, Union, Any
 
 from .preprocessing.video_processor import VideoProcessor
 from .frame_analysis.object_detector import ObjectDetector
@@ -22,6 +23,22 @@ from .output_formatting.formatter import OutputFormatter
 from .utils.config_loader import load_config
 
 logger = logging.getLogger(__name__)
+
+class PipelineError(Exception):
+    """Base exception for pipeline errors."""
+    pass
+
+class VideoProcessingError(PipelineError):
+    """Exception raised when video processing fails."""
+    pass
+
+class AudioProcessingError(PipelineError):
+    """Exception raised when audio processing fails."""
+    pass
+
+class RecipeExtractionError(PipelineError):
+    """Exception raised when recipe extraction fails."""
+    pass
 
 class Pipeline:
     """
@@ -86,6 +103,7 @@ class Pipeline:
                 language=self.config["transcription"]["language"],
                 timestamps=self.config["transcription"]["timestamps"]
             )
+            logger.info("Audio transcriber initialized successfully")
         except Exception as e:
             logger.warning(f"Could not initialize audio transcriber: {e}")
             self.audio_transcriber = None
@@ -95,9 +113,41 @@ class Pipeline:
         self.recipe_extractor = None  # RecipeExtractor()
         self.output_formatter = None  # OutputFormatter()
     
-    def process(self, video_path, output_path=None):
+    def _validate_input(self, video_path: str) -> None:
         """
-        Process a video and extract the recipe.
+        Validate input video file.
+        
+        Args:
+            video_path (str): Path to the video file.
+            
+        Raises:
+            VideoProcessingError: If validation fails.
+        """
+        if not video_path:
+            raise VideoProcessingError("Video path cannot be empty")
+        
+        if not os.path.exists(video_path):
+            raise VideoProcessingError(f"Video file not found: {video_path}")
+        
+        if not os.path.isfile(video_path):
+            raise VideoProcessingError(f"Path is not a file: {video_path}")
+        
+        # Check file size
+        file_size = os.path.getsize(video_path)
+        if file_size == 0:
+            raise VideoProcessingError(f"Video file is empty: {video_path}")
+        
+        # Check file extension
+        valid_extensions = {'.mp4', '.avi', '.mov', '.mkv', '.webm', '.flv', '.wmv'}
+        file_ext = Path(video_path).suffix.lower()
+        if file_ext not in valid_extensions:
+            logger.warning(f"Unusual video file extension: {file_ext}")
+        
+        logger.info(f"Input validation passed: {video_path} ({file_size} bytes)")
+
+    def process(self, video_path: str, output_path: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Process a video and extract the recipe with comprehensive error handling.
         
         Args:
             video_path (str): Path to the video file.
@@ -105,8 +155,20 @@ class Pipeline:
             
         Returns:
             dict: Extracted recipe.
+            
+        Raises:
+            VideoProcessingError: If video processing fails.
+            AudioProcessingError: If audio processing fails.
+            RecipeExtractionError: If recipe extraction fails.
         """
         logger.info(f"Processing video: {video_path}")
+        
+        # Validate input
+        try:
+            self._validate_input(video_path)
+        except VideoProcessingError as e:
+            logger.error(f"Input validation failed: {e}")
+            raise
         
         # Determine output path
         if output_path is None:
@@ -114,85 +176,166 @@ class Pipeline:
             output_path = os.path.join(self.config["general"]["output_dir"], f"{video_name}_recipe.json")
         
         # Create output directory if it doesn't exist
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        try:
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        except OSError as e:
+            raise VideoProcessingError(f"Failed to create output directory: {e}")
+        
+        # Initialize result tracking
+        processing_results = {
+            "video_path": video_path,
+            "metadata": {},
+            "scenes": [],
+            "object_detections": [],
+            "text_detections": [],
+            "action_detections": [],
+            "transcription": {},
+            "nlp_results": {},
+            "errors": [],
+            "warnings": []
+        }
         
         try:
             # Step 1: Preprocess video
             logger.info("Preprocessing video...")
-            frames, audio_path, metadata = self.video_processor.process(video_path)
+            try:
+                frames, audio_path, metadata = self.video_processor.process(video_path)
+                processing_results["metadata"] = metadata
+                logger.info(f"Video preprocessing completed: {len(frames)} frames extracted")
+            except Exception as e:
+                error_msg = f"Video preprocessing failed: {e}"
+                logger.error(error_msg)
+                processing_results["errors"].append(error_msg)
+                raise VideoProcessingError(error_msg) from e
             
             # Step 2: Detect scenes
             logger.info("Detecting scenes...")
-            scenes = self.scene_detector.detect(video_path)
+            try:
+                scenes = self.scene_detector.detect(video_path)
+                processing_results["scenes"] = scenes
+                logger.info(f"Scene detection completed: {len(scenes)} scenes detected")
+            except Exception as e:
+                error_msg = f"Scene detection failed: {e}"
+                logger.warning(error_msg)
+                processing_results["warnings"].append(error_msg)
+                scenes = []
             
             # Step 3: Detect objects in frames
             logger.info("Detecting objects in frames...")
-            object_detections = self.object_detector.detect(frames)
-            
-            # Filter for cooking-related objects if configured
-            if self.config["object_detection"]["filter_cooking_objects"]:
-                object_detections = self.object_detector.filter_cooking_related(object_detections)
+            try:
+                object_detections = self.object_detector.detect(frames)
+                
+                # Filter for cooking-related objects if configured
+                if self.config["object_detection"]["filter_cooking_objects"]:
+                    object_detections = self.object_detector.filter_cooking_related(object_detections)
+                
+                processing_results["object_detections"] = object_detections
+                logger.info(f"Object detection completed: {len(object_detections)} detections")
+            except Exception as e:
+                error_msg = f"Object detection failed: {e}"
+                logger.warning(error_msg)
+                processing_results["warnings"].append(error_msg)
+                object_detections = []
             
             # Step 4: Recognize text in frames (placeholder)
             logger.info("Recognizing text in frames...")
             text_detections = []  # self.text_recognizer.recognize(frames)
+            processing_results["text_detections"] = text_detections
             
             # Step 5: Recognize actions (placeholder)
             logger.info("Recognizing actions...")
             action_detections = []  # self.action_recognizer.recognize(frames, scenes)
+            processing_results["action_detections"] = action_detections
             
             # Step 6: Transcribe audio
             logger.info("Transcribing audio...")
+            transcription = {}
             if self.audio_transcriber and audio_path and os.path.exists(audio_path):
                 try:
                     transcription = self.audio_transcriber.transcribe(audio_path)
+                    processing_results["transcription"] = transcription
                     logger.info(f"Audio transcribed: {len(transcription.get('text', ''))} characters")
                 except Exception as e:
-                    logger.warning(f"Audio transcription failed: {e}")
+                    error_msg = f"Audio transcription failed: {e}"
+                    logger.warning(error_msg)
+                    processing_results["warnings"].append(error_msg)
                     transcription = {}
             else:
-                logger.warning("Audio transcriber not available or audio file not found")
-                transcription = {}
+                warning_msg = "Audio transcriber not available or audio file not found"
+                logger.warning(warning_msg)
+                processing_results["warnings"].append(warning_msg)
             
             # Step 7: Process natural language (placeholder)
             logger.info("Processing natural language...")
             nlp_results = {}  # self.nlp_processor.process(transcription)
+            processing_results["nlp_results"] = nlp_results
             
-            # Step 8: Integrate multimodal data (placeholder)
+            # Step 8: Integrate multimodal data
             logger.info("Integrating multimodal data...")
             integrated_data = {
                 "video_path": video_path,
-                "metadata": metadata,
-                "scenes": scenes,
-                "object_detections": object_detections,
-                "text_detections": text_detections,
-                "action_detections": action_detections,
-                "transcription": transcription,
-                "nlp_results": nlp_results
+                "metadata": processing_results["metadata"],
+                "scenes": processing_results["scenes"],
+                "object_detections": processing_results["object_detections"],
+                "text_detections": processing_results["text_detections"],
+                "action_detections": processing_results["action_detections"],
+                "transcription": processing_results["transcription"],
+                "nlp_results": processing_results["nlp_results"]
             }
             
             # Step 9: Extract recipe structure from actual data
             logger.info("Extracting recipe structure...")
-            recipe = self._extract_recipe_from_data(integrated_data, metadata)
+            try:
+                recipe = self._extract_recipe_from_data(integrated_data, processing_results["metadata"])
+                logger.info(f"Recipe extraction completed: {len(recipe.get('ingredients', []))} ingredients, {len(recipe.get('steps', []))} steps")
+            except Exception as e:
+                error_msg = f"Recipe extraction failed: {e}"
+                logger.error(error_msg)
+                processing_results["errors"].append(error_msg)
+                raise RecipeExtractionError(error_msg) from e
             
-            # Step 10: Format output (placeholder)
+            # Step 10: Format output
             logger.info("Formatting output...")
             formatted_output = recipe
             
-            # Save output
-            with open(output_path, 'w') as f:
-                json.dump(formatted_output, f, indent=2)
+            # Add processing metadata
+            formatted_output["_processing_metadata"] = {
+                "processing_errors": processing_results["errors"],
+                "processing_warnings": processing_results["warnings"],
+                "components_used": {
+                    "video_processor": True,
+                    "scene_detector": True,
+                    "object_detector": True,
+                    "text_recognizer": False,
+                    "action_recognizer": False,
+                    "audio_transcriber": self.audio_transcriber is not None,
+                    "nlp_processor": False
+                }
+            }
             
-            logger.info(f"Recipe extracted and saved to {output_path}")
+            # Save output
+            try:
+                with open(output_path, 'w') as f:
+                    json.dump(formatted_output, f, indent=2)
+                logger.info(f"Recipe extracted and saved to {output_path}")
+            except Exception as e:
+                error_msg = f"Failed to save output: {e}"
+                logger.error(error_msg)
+                raise VideoProcessingError(error_msg) from e
+            
             return formatted_output
             
-        except Exception as e:
-            logger.error(f"Error processing video: {e}", exc_info=True)
+        except (VideoProcessingError, AudioProcessingError, RecipeExtractionError):
+            # Re-raise our custom exceptions
             raise
+        except Exception as e:
+            error_msg = f"Unexpected error processing video: {e}"
+            logger.error(error_msg, exc_info=True)
+            raise PipelineError(error_msg) from e
     
     def _extract_recipe_from_data(self, integrated_data, metadata):
         """
-        Extract recipe from actual processed data.
+        Extract recipe from actual processed data with comprehensive error handling.
         
         Args:
             integrated_data (dict): Integrated multimodal data.
@@ -200,43 +343,90 @@ class Pipeline:
             
         Returns:
             dict: Extracted recipe.
+            
+        Raises:
+            RecipeExtractionError: If recipe extraction fails.
         """
-        # Extract ingredients from object detections and audio
-        ingredients = self._extract_ingredients_from_objects(integrated_data.get("object_detections", []))
-        
-        # Enhance ingredients with audio transcription if available
-        transcription = integrated_data.get("transcription", {})
-        if transcription.get("text"):
-            ingredients = self._enhance_ingredients_with_audio(ingredients, transcription)
-        
-        # Extract tools from object detections
-        tools = self._extract_tools_from_objects(integrated_data.get("object_detections", []))
-        
-        # Extract steps from scenes, objects, and audio
-        steps = self._extract_steps_from_scenes(integrated_data.get("scenes", []), 
-                                               integrated_data.get("object_detections", []),
-                                               metadata)
-        
-        # Enhance steps with audio transcription if available
-        if transcription.get("text"):
-            steps = self._enhance_steps_with_audio(steps, transcription)
-        
-        # Generate title based on detected ingredients and audio
-        title = self._generate_recipe_title(ingredients, transcription)
-        
-        # Estimate servings based on ingredient quantities and audio
-        servings = self._estimate_servings(ingredients, transcription)
-        
-        recipe = {
-            "title": title,
-            "servings": servings,
-            "ingredients": ingredients,
-            "tools": tools,
-            "steps": steps
-        }
-        
-        logger.info(f"Extracted recipe: {len(ingredients)} ingredients, {len(tools)} tools, {len(steps)} steps")
-        return recipe
+        try:
+            # Extract ingredients from object detections and audio
+            try:
+                ingredients = self._extract_ingredients_from_objects(integrated_data.get("object_detections", []))
+                logger.info(f"Ingredients extracted: {len(ingredients)} items")
+            except Exception as e:
+                logger.warning(f"Ingredient extraction failed: {e}")
+                ingredients = []
+            
+            # Enhance ingredients with audio transcription if available
+            transcription = integrated_data.get("transcription", {})
+            if transcription.get("text"):
+                try:
+                    ingredients = self._enhance_ingredients_with_audio(ingredients, transcription)
+                    logger.info(f"Ingredients enhanced with audio: {len(ingredients)} items")
+                except Exception as e:
+                    logger.warning(f"Ingredient enhancement failed: {e}")
+            
+            # Extract tools from object detections
+            try:
+                tools = self._extract_tools_from_objects(integrated_data.get("object_detections", []))
+                logger.info(f"Tools extracted: {len(tools)} items")
+            except Exception as e:
+                logger.warning(f"Tool extraction failed: {e}")
+                tools = []
+            
+            # Extract steps from scenes, objects, and audio
+            try:
+                steps = self._extract_steps_from_scenes(integrated_data.get("scenes", []), 
+                                                       integrated_data.get("object_detections", []),
+                                                       metadata)
+                logger.info(f"Steps extracted: {len(steps)} steps")
+            except Exception as e:
+                logger.warning(f"Step extraction failed: {e}")
+                steps = []
+            
+            # Enhance steps with audio transcription if available
+            if transcription.get("text"):
+                try:
+                    steps = self._enhance_steps_with_audio(steps, transcription)
+                    logger.info(f"Steps enhanced with audio: {len(steps)} steps")
+                except Exception as e:
+                    logger.warning(f"Step enhancement failed: {e}")
+            
+            # Generate title based on detected ingredients and audio
+            try:
+                title = self._generate_recipe_title(ingredients, transcription)
+            except Exception as e:
+                logger.warning(f"Title generation failed: {e}")
+                title = "Cooking Recipe"
+            
+            # Estimate servings based on ingredient quantities and audio
+            try:
+                servings = self._estimate_servings(ingredients, transcription)
+            except Exception as e:
+                logger.warning(f"Serving estimation failed: {e}")
+                servings = 4
+            
+            # Validate minimum recipe requirements
+            if not ingredients and not steps:
+                raise RecipeExtractionError("No ingredients or steps could be extracted from the video")
+            
+            recipe = {
+                "title": title,
+                "servings": servings,
+                "ingredients": ingredients,
+                "tools": tools,
+                "steps": steps
+            }
+            
+            logger.info(f"Recipe extraction completed: {len(ingredients)} ingredients, {len(tools)} tools, {len(steps)} steps")
+            return recipe
+            
+        except RecipeExtractionError:
+            # Re-raise recipe extraction errors
+            raise
+        except Exception as e:
+            error_msg = f"Unexpected error during recipe extraction: {e}"
+            logger.error(error_msg)
+            raise RecipeExtractionError(error_msg) from e
     
     def _extract_ingredients_from_objects(self, object_detections):
         """Extract ingredients from object detection results."""
